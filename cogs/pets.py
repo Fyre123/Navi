@@ -65,26 +65,21 @@ class PetsCog(commands.Cog):
                     ) # Message split up like this because I'm unsure if I want to always send the first part
                     await user_settings.update(pet_tip_read=True)
                     await message.reply(pet_message)
+                if 'for some completely unknown reason, the following pets are back instantly' in message_content.lower():
+                    if user_settings.reactions_enabled: await message.add_reaction(emojis.SKILL_TIME_TRAVELER)
                 if interaction is not None or 'pets have started an adventure!' in message_content.lower(): return
                 arguments = user_command_message.content.split()
                 pet_id = arguments[-1].upper()
                 if pet_id == 'EPIC': return
                 current_time = datetime.utcnow().replace(microsecond=0)
                 timestring = re.search("will be back in \*\*(.+?)\*\*", message_content).group(1)
-                time_left = await functions.parse_timestring_to_timedelta(timestring.lower())
-                bot_answer_time = message.created_at.replace(microsecond=0, tzinfo=None)
-                current_time = datetime.utcnow().replace(microsecond=0)
-                time_elapsed = current_time - bot_answer_time
-                time_left = time_left - time_elapsed
+                time_left = await functions.calculate_time_left_from_timestring(message, timestring)
                 reminder_message = user_settings.alert_pets.message.replace('{id}', pet_id).replace('{emoji}','')
                 reminder: reminders.Reminder = (
                     await reminders.insert_user_reminder(user.id, f'pets-{pet_id}', time_left,
                                                          message.channel.id, reminder_message)
                 )
-                if reminder.record_exists:
-                    if user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
-                else:
-                    if settings.DEBUG_MODE: await message.channel.send(strings.MSG_ERROR)
+                await functions.add_reminder_reaction(message, reminder, user_settings)
 
             if 'pet adventure(s) cancelled' in message_content.lower():
                 user = await functions.get_interaction_user(message)
@@ -141,6 +136,33 @@ class PetsCog(commands.Cog):
                         )
                 if user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
 
+            if 'it came back instantly!!' in message_content.lower():
+                user = await functions.get_interaction_user(message)
+                if user is None:
+                    message_history = await message.channel.history(limit=50).flatten()
+                    for msg in message_history:
+                        if msg.content is not None:
+                            if (msg.content.lower().replace(' ','').startswith('rpgpet') and ' adv' in msg.content.lower()
+                                and not msg.author.bot):
+                                user = msg.author
+                                break
+                    if user is None:
+                        if settings.DEBUG_MODE or message.guild.id in settings.DEV_GUILDS:
+                            await message.add_reaction(emojis.WARNING)
+                        await errors.log_error(
+                            'Couldn\'t find a user for the pet time travel reaction.',
+                            message
+                        )
+                        return
+                try:
+                    user_settings: users.User = await users.get_user(user.id)
+                except exceptions.FirstTimeUserError:
+                    return
+                if (not user_settings.bot_enabled or not user_settings.alert_pets.enabled
+                    or not user_settings.reactions_enabled):
+                    return
+                await message.add_reaction(emojis.SKILL_TIME_TRAVELER)
+
         if message.embeds:
             embed: discord.Embed = message.embeds[0]
             message_author = message_description = icon_url = ''
@@ -176,23 +198,19 @@ class PetsCog(commands.Cog):
                             if settings.DEBUG_MODE or message.guild.id in settings.DEV_GUILDS:
                                 await message.add_reaction(emojis.WARNING)
                             await errors.log_error(
-                                f'User not found in pet list message: {message.embeds[0].fields}',
+                                f'User not found in pet list message: {message_author}',
                                 message
                             )
                             return
                     if user_id is not None:
                         user = await message.guild.fetch_member(user_id)
                     else:
-                        for member in message.guild.members:
-                            member_name = await functions.encode_text(member.name)
-                            if member_name == user_name:
-                                user = member
-                                break
+                        user = await functions.get_guild_member_by_name(message.guild, user_name)
                 if user is None:
                     if settings.DEBUG_MODE or message.guild.id in settings.DEV_GUILDS:
                         await message.add_reaction(emojis.WARNING)
                     await errors.log_error(
-                        f'User not found in pet list message: {message.embeds[0].fields}',
+                        f'User not found in pet list message: {message_author}',
                         message
                     )
                     return
@@ -214,8 +232,15 @@ class PetsCog(commands.Cog):
                                 pet_emoji = emoji
                                 break
                         pet_action_timestring_search = re.search('Status__:\*\* (.+?) \| \*\*(.+?)\*\*', field.value)
-                        if pet_id_search is None or pet_action_timestring_search is None: continue
+                        if pet_id_search is None: continue
                         pet_id = pet_id_search.group(1)
+                        if pet_action_timestring_search is None:
+                            try:
+                                reminder: reminders.Reminder = await reminders.get_user_reminder(user.id, f'pets-{pet_id}')
+                                await reminder.delete()
+                            except exceptions.NoDataFoundError:
+                                pass
+                            continue
                         pet_action = pet_action_timestring_search.group(1)
                         if pet_action not in ('learning','finding','drilling'): continue
                         pet_timestring = pet_action_timestring_search.group(2)
@@ -237,7 +262,6 @@ class PetsCog(commands.Cog):
                                                              message.channel.id, reminder_message)
                     )
                 if reminder_created and user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
-
 
 # Initialization
 def setup(bot):

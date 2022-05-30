@@ -53,12 +53,8 @@ class HuntCog(commands.Cog):
                     except:
                         pass
                 else:
-                    for member in message.guild.members:
-                        member_name = await functions.encode_text(member.name)
-                        if member_name == user_name:
-                            embed_user = member
-                            user_id = embed_user.id
-                            break
+                    embed_user = await functions.get_guild_member_by_name(message.guild, user_name)
+                    if embed_user is not None: user_id = embed_user.id
                 if user_command is None:
                     message_history = await message.channel.history(limit=50).flatten()
                     user_command_message = None
@@ -86,6 +82,8 @@ class HuntCog(commands.Cog):
                             arguments = f'{arguments} together'
                         if argument in ('a', 'alone') and 'alone' not in arguments:
                             arguments = f'{arguments} alone'
+                        if argument in ('n', 'new') and 'new' not in arguments:
+                            arguments = f'{arguments} new'
                     user_command = f'rpg hunt {arguments.strip()}'
                 try:
                     user_settings: users.User = await users.get_user(interaction_user.id)
@@ -93,11 +91,7 @@ class HuntCog(commands.Cog):
                     return
                 if not user_settings.bot_enabled or not user_settings.alert_hunt.enabled: return
                 timestring = re.search("wait at least \*\*(.+?)\*\*...", message_title).group(1)
-                time_left = await functions.parse_timestring_to_timedelta(timestring.lower())
-                bot_answer_time = message.created_at.replace(microsecond=0, tzinfo=None)
-                current_time = datetime.utcnow().replace(microsecond=0)
-                time_elapsed = current_time - bot_answer_time
-                time_left = time_left - time_elapsed
+                time_left = await functions.calculate_time_left_from_timestring(message, timestring)
                 cooldown: cooldowns.Cooldown = await cooldowns.get_cooldown('hunt')
                 partner_donor_tier = 3 if user_settings.partner_donor_tier > 3 else user_settings.partner_donor_tier
                 user_donor_tier = 3 if user_settings.user_donor_tier > 3 else user_settings.user_donor_tier
@@ -117,10 +111,7 @@ class HuntCog(commands.Cog):
                     await reminders.insert_user_reminder(interaction_user.id, 'hunt', time_left,
                                                          message.channel.id, reminder_message)
                 )
-                if reminder.record_exists:
-                    if user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
-                else:
-                    if settings.DEBUG_MODE: await message.add_reaction(emojis.CROSS)
+                await functions.add_reminder_reaction(message, reminder, user_settings)
 
         if not message.embeds:
             message_content = message.content
@@ -133,6 +124,7 @@ class HuntCog(commands.Cog):
                 hardmode = True if '(but stronger)' in message_content.lower() else False
                 alone = True if '(way stronger!!!)' in message_content.lower() else False
                 together = True if 'hunting together' in message_content.lower() else False
+                new = True if '__**' in message_content.lower() else False
                 if together:
                     name_search = re.search("\*\*(.+?)\*\* and \*\*(.+?)\*\*", message_content)
                     user_name = name_search.group(1)
@@ -144,11 +136,7 @@ class HuntCog(commands.Cog):
                         user_name = user_name_search.group(1)
                         user_name = await functions.encode_text(user_name)
                     if user_name != 'Both players':
-                        for member in message.guild.members:
-                            member_name = await functions.encode_text(member.name)
-                            if member_name == user_name:
-                                user = member
-                                break
+                        user = await functions.get_guild_member_by_name(message.guild, user_name)
                     if user is None:
                         message_history = await message.channel.history(limit=50).flatten()
                         for msg in message_history:
@@ -182,6 +170,7 @@ class HuntCog(commands.Cog):
                 if hardmode: user_command = f'{user_command} hardmode'
                 if alone: user_command = f'{user_command} alone'
                 if together: user_command = f'{user_command} together'
+                if new: user_command = f'{user_command} new'
                 cooldown: cooldowns.Cooldown = await cooldowns.get_cooldown('hunt')
                 bot_answer_time = message.created_at.replace(microsecond=0, tzinfo=None)
                 time_elapsed = current_time - bot_answer_time
@@ -202,10 +191,7 @@ class HuntCog(commands.Cog):
                     await reminders.insert_user_reminder(user.id, 'hunt', time_left,
                                                          message.channel.id, reminder_message)
                 )
-                if reminder.record_exists:
-                    if user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
-                else:
-                    if settings.DEBUG_MODE: await message.channel.send(strings.MSG_ERROR)
+                await functions.add_reminder_reaction(message, reminder, user_settings)
                 partner_start = len(message_content)
                 if user_settings.partner_id is not None:
                     partner: users.User = await users.get_user(user_settings.partner_id)
@@ -261,7 +247,7 @@ class HuntCog(commands.Cog):
                                     lb_message = f'{partner_discord.mention} {lootbox_alert}'
                                 await self.bot.wait_until_ready()
                                 await self.bot.get_channel(partner.partner_channel_id).send(lb_message)
-                                await message.add_reaction(emojis.PARTNER_ALERT)
+                                if user_settings.reactions_enabled: await message.add_reaction(emojis.PARTNER_ALERT)
                             except Exception as error:
                                 await errors.log_error(
                                     f'Had the following error while trying to send the partner alert:\n{error}',
@@ -282,17 +268,18 @@ class HuntCog(commands.Cog):
                             f'feel free to take them hunting.'
                         )
                         await message.channel.send(hm_message)
-                found_stuff = {
-                    'OMEGA lootbox': emojis.SURPRISE,
-                    'GODLY lootbox': emojis.SURPRISE,
-                }
-                for stuff_name, stuff_emoji in found_stuff.items():
-                    if (stuff_name in message_content) and (message_content.rfind(stuff_name) < partner_start):
-                        await message.add_reaction(stuff_emoji)
-                # Add an F if the user died
-                if ((message_content.find(f'**{user.name}** lost but ') > -1)
-                    or (message_content.find('but lost fighting') > -1)):
-                    await message.add_reaction(emojis.RIP)
+                if user_settings.reactions_enabled:
+                    found_stuff = {
+                        'OMEGA lootbox': emojis.SURPRISE,
+                        'GODLY lootbox': emojis.SURPRISE,
+                    }
+                    for stuff_name, stuff_emoji in found_stuff.items():
+                        if (stuff_name in message_content) and (message_content.rfind(stuff_name) < partner_start):
+                            await message.add_reaction(stuff_emoji)
+                    # Add an F if the user died
+                    if ((message_content.find(f'**{user.name}** lost but ') > -1)
+                        or (message_content.find('but lost fighting') > -1)):
+                        await message.add_reaction(emojis.RIP)
 
             # Hunt event
             if ('pretends to be a zombie' in message_content.lower()
@@ -314,11 +301,7 @@ class HuntCog(commands.Cog):
                             message
                         )
                         return
-                    for member in message.guild.members:
-                        member_name = await functions.encode_text(member.name)
-                        if member_name == user_name:
-                            user = member
-                            break
+                    user = await functions.get_guild_member_by_name(message.guild, user_name)
                 if user is None:
                     if settings.DEBUG_MODE or message.guild.id in settings.DEV_GUILDS:
                         await message.add_reaction(emojis.WARNING)
@@ -384,10 +367,7 @@ class HuntCog(commands.Cog):
                     await reminders.insert_user_reminder(user.id, 'hunt', time_left,
                                                          message.channel.id, reminder_message)
                 )
-                if reminder.record_exists:
-                    if user_settings.reactions_enabled: await message.add_reaction(emojis.NAVI)
-                else:
-                    if settings.DEBUG_MODE: await message.channel.send(strings.MSG_ERROR)
+                await functions.add_reminder_reaction(message, reminder, user_settings)
 
 
 # Initialization
