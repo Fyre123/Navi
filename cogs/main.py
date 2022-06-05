@@ -26,6 +26,19 @@ class MainCog(commands.Cog):
         embed = await embed_main_help(ctx)
         await ctx.reply(embed=embed)
 
+    @commands.command(aliases=('inv',))
+    @commands.bot_has_permissions(send_messages=True, embed_links=True, read_message_history=True)
+    async def invite(self, ctx: commands.Context) -> None:
+        """Invite command"""
+        if ctx.prefix.lower() == 'rpg ':
+            return
+        message = (
+            f'Sorry, you can\'t invite me.\n'
+            f'However, I am fully open source on an MIT license, so feel free to run me yourself.\n'
+            f'https://github.com/Miriel-py/Navi'
+        )
+        await ctx.reply(message)
+
     @commands.command(aliases=('ping','info'))
     async def about(self, ctx: commands.Context) -> None:
         """Shows some info about Navi"""
@@ -78,6 +91,13 @@ class MainCog(commands.Cog):
                 f'**{ctx.author.name}**, looks like I don\'t know you yet.\n'
                 f'Use `{ctx.prefix}on` to activate me first.'
             )
+        elif isinstance(error, (commands.UnexpectedQuoteError, commands.InvalidEndOfQuotedStringError,
+                                commands.ExpectedClosingQuoteError)):
+            await ctx.reply(
+                f'**{ctx.author.name}**, whatever you just entered contained invalid characters I can\'t process.\n'
+                f'Please try that again.'
+            )
+            await errors.log_error(error, ctx)
         else:
             await errors.log_error(error, ctx)
             if settings.DEBUG_MODE or ctx.guild.id in settings.DEV_GUILDS: await send_error()
@@ -195,9 +215,11 @@ async def embed_about(bot: commands.Bot, api_latency: datetime) -> discord.Embed
         f'{emojis.BP} {round(api_latency.total_seconds() * 1000):,} ms API latency'
     )
     creator = f'{emojis.BP} Miriel#0001'
+    github = f'{emojis.BP} [https://github.com/Miriel-py/Navi](https://github.com/Miriel-py/Navi)'
     embed = discord.Embed(color = settings.EMBED_COLOR, title = 'ABOUT NAVI')
     embed.add_field(name='BOT STATS', value=general, inline=False)
     embed.add_field(name='CREATOR', value=creator, inline=False)
+    embed.add_field(name='GITHUB', value=github, inline=False)
     embed.add_field(name='SPECIAL THANKS TO', value=f'{emojis.BP} Swiss cheese', inline=False)
 
     return embed

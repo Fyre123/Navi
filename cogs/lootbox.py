@@ -1,13 +1,12 @@
 # lootbox.py
 
-from datetime import datetime, timedelta
 import re
 
 import discord
 from discord.ext import commands
 
-from database import cooldowns, errors, reminders, users
-from resources import emojis, exceptions, functions, settings, strings
+from database import errors, reminders, users
+from resources import emojis, exceptions, functions, settings
 
 
 class BuyCog(commands.Cog):
@@ -77,7 +76,9 @@ class BuyCog(commands.Cog):
         if not message.embeds:
             message_content = message.content
             # Buy lootbox
-            if "lootbox` successfully bought for" in message_content.lower() and not 'guild ring' in message_content.lower():
+            if ("lootbox` successfully bought for" in message_content.lower()
+                and not 'guild ring' in message_content.lower()
+                and not 'smol coin' in message_content.lower()):
                 user = await functions.get_interaction_user(message)
                 user_command = 'rpg buy [lootbox]' if user is None else '/buy item: [lootbox]'
                 if user is None:

@@ -1,13 +1,12 @@
 # work.py
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 
 import discord
 from discord.ext import commands
 
-from database import cooldowns, errors, reminders, tracking, users
-import database
+from database import errors, reminders, tracking, users
 from resources import emojis, exceptions, functions, settings, strings
 
 
@@ -113,6 +112,7 @@ class WorkCog(commands.Cog):
                         '\?\?\?\?\? \*\*(.+?)\*\* got',
                         'WOOAAAA!! (.+?)\*\* got',
                         'WwWOoOOoOAAa!!!1 (.+?)\*\* got',
+                        '\.\.\. \*\*(.+?)\*\* got',
                         '\*\*(.+?)\*\* got',
                     ]
                     for search_string in search_strings:

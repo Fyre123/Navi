@@ -92,6 +92,9 @@ class HuntCog(commands.Cog):
                 if not user_settings.bot_enabled or not user_settings.alert_hunt.enabled: return
                 timestring = re.search("wait at least \*\*(.+?)\*\*...", message_title).group(1)
                 time_left = await functions.calculate_time_left_from_timestring(message, timestring)
+                bot_answer_time = message.created_at.replace(microsecond=0, tzinfo=None)
+                current_time = datetime.utcnow().replace(microsecond=0)
+                time_elapsed = current_time - bot_answer_time
                 cooldown: cooldowns.Cooldown = await cooldowns.get_cooldown('hunt')
                 partner_donor_tier = 3 if user_settings.partner_donor_tier > 3 else user_settings.partner_donor_tier
                 user_donor_tier = 3 if user_settings.user_donor_tier > 3 else user_settings.user_donor_tier
@@ -117,7 +120,7 @@ class HuntCog(commands.Cog):
             message_content = message.content
             # Hunt
             if ('found a' in message_content.lower()
-                and any(monster.lower() in message_content.lower() for monster in strings.MONSTERS_HUNT)):
+                and any(f'> {monster.lower()}' in message_content.lower() for monster in strings.MONSTERS_HUNT)):
                 user_name = None
                 user = await functions.get_interaction_user(message)
                 slash_command = True if user is not None else False
