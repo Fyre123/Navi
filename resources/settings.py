@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-TOKEN = 'OTg4NTA1MTY5NzA2NzUwMDAz.GhWUW5.iYEf5RZ95nZRZbvhqTxYoTdBIF9uNP-PoQWNUk'
+TOKEN = os.getenv('DISCORD_TOKEN')
 DEBUG_MODE = True if os.getenv('DEBUG_MODE') == 'ON' else False
 
 BOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
